@@ -13,6 +13,7 @@ import {
 	Guid,
 	parseGuid,
 	Quaternion,
+	TextAnchorLocation,
 	User,
 	Vector3,
 } from '@microsoft/mixed-reality-extension-sdk';
@@ -20,6 +21,9 @@ import {
 /* eslint-disable @typescript-eslint/no-var-requires */
 const chess = require('chess');
 /* eslint-enable @typescript-eslint/no-var-requires */
+
+import { StockfishAnalyzer, AnalysisResult } from './stockfishAnalyzer';
+import { FenConverter } from './fenConverter';
 
 type Game = {
 	move: (src: Coordinate, dst: Coordinate, promo?: string) => MoveResult;
@@ -133,11 +137,15 @@ export default class ChessGame {
 	private resetButton: Actor;
 	private assets: AssetContainer;
 	private preloads: { [id: string]: Asset[] } = {};
+	private analyzer: StockfishAnalyzer;
+	private evaluationText: Actor;
 
 	constructor(private context: Context, private baseUrl: string) {
 		this.assets = new AssetContainer(this.context);
 		this.context.onStarted(this.started);
 		this.context.onUserJoined(this.userJoined);
+		this.analyzer = new StockfishAnalyzer();
+		this.setupAnalyzer();
 	}
 
 	/**
@@ -149,6 +157,48 @@ export default class ChessGame {
 
 	private userJoined = (user: User) => {
 		// console.log(user.properties);
+	}
+
+	private setupAnalyzer() {
+		this.analyzer.on('analysis', (result: AnalysisResult) => {
+			this.updateEvaluationDisplay(result);
+		});
+	}
+
+	private updateEvaluationDisplay(result: AnalysisResult) {
+		if (!this.evaluationText) {
+			return;
+		}
+
+		let displayText = '';
+		if (result.mate !== undefined) {
+			// Mate in N moves
+			if (result.mate > 0) {
+				displayText = `White mates in ${result.mate}`;
+			} else {
+				displayText = `Black mates in ${Math.abs(result.mate)}`;
+			}
+		} else {
+			// Centipawn score
+			const score = result.score / 100;
+			if (score > 0) {
+				displayText = `White +${score.toFixed(2)}`;
+			} else if (score < 0) {
+				displayText = `Black +${Math.abs(score).toFixed(2)}`;
+			} else {
+				displayText = `Equal 0.00`;
+			}
+		}
+
+		displayText += ` (depth ${result.depth})`;
+		this.evaluationText.text.contents = displayText;
+	}
+
+	private analyzeCurrentPosition() {
+		const status = this.game.getStatus();
+		const currentSide = this.game.getCurrentSide();
+		const fen = FenConverter.toFen(status.board, currentSide);
+		this.analyzer.analyzePosition(fen, 15);
 	}
 
 	private async preloadAllModels() {
@@ -207,13 +257,17 @@ export default class ChessGame {
 			this.createMoveMarkers(),
 			this.createCheckMarker(),
 			this.createJoinButtons(),
-			this.createResetButton()
+			this.createResetButton(),
+			this.createEvaluationDisplay()
 		]);
 
 		// Hook up event handlers.
 		// Do this after all actors are loaded because the event handlers themselves reference other actors in the
 		// scene. It simplifies handler code if we can assume that the actors are loaded.
 		this.addEventHandlers();
+
+		// Start analyzing the initial position
+		this.analyzeCurrentPosition();
 	}
 
 	private createRootObject() {
@@ -368,6 +422,28 @@ export default class ChessGame {
 		return actor.created();
 	}
 
+	private createEvaluationDisplay() {
+		// Create a text actor to display the evaluation
+		this.evaluationText = Actor.Create(this.context, {
+			actor: {
+				name: 'evaluation-display',
+				parentId: this.sceneRoot.id,
+				transform: {
+					local: {
+						position: { x: 0, y: 0.15, z: 0 }
+					}
+				},
+				text: {
+					contents: 'Analyzing...',
+					anchor: TextAnchorLocation.MiddleCenter,
+					color: { r: 1, g: 1, b: 1 },
+					height: 0.03
+				}
+			}
+		});
+		return this.evaluationText.created();
+	}
+
 	private addEventHandlers() {
 		const status = this.game.getStatus();
 		// Add input handlers to chess pieces.
@@ -456,6 +532,9 @@ export default class ChessGame {
 		} else if (newStatus.isStalemate) {
 			//
 		}
+
+		// Analyze the new position
+		this.analyzeCurrentPosition();
 	}
 
 	private promoteChessPiece(userId: Guid, actor: Actor, destSquare: Square) {
