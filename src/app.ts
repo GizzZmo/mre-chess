@@ -456,10 +456,13 @@ export default class ChessGame {
 	}
 
 	private createResetButton() {
+		// Position the reset button below the board (in positive z direction from board's origin)
+		// The board squares go from (0,0) to (-0.267, -0.267) approximately
+		// So we place the button centered horizontally and below the board
 		const position = new Vector3();
-		position.copy(this.boardOffset.transform.local.position)
-		position.x = .1;
-		position.z = -.135;
+		position.x = -0.135; // Center of the board horizontally
+		position.y = baseHeight;
+		position.z = 0.05; // Just below the board (below rank 1)
 		const prefab = this.preloads['move-marker'].filter(asset => asset.prefab)[0].prefab;
 		const actor = Actor.CreateFromPrefab(this.context, {
 			prefabId: prefab.id,
@@ -592,6 +595,9 @@ export default class ChessGame {
 	private promoteChessPiece(userId: Guid, actor: Actor, destSquare: Square) {
 		const newPieceActor = this.createSingleChessPiece(destSquare);
 		this.addEventHandlersToSingleChessPiece(newPieceActor);
+
+		// Destroy the old pawn actor
+		actor.destroy();
 
 		return newPieceActor;
 	}
