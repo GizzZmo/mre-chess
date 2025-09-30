@@ -4,9 +4,10 @@
  */
 
 import { EventEmitter } from 'events';
+import * as path from 'path';
 
 /* eslint-disable @typescript-eslint/no-var-requires */
-const stockfish = require('stockfish');
+const fs = require('fs');
 /* eslint-enable @typescript-eslint/no-var-requires */
 
 export interface AnalysisResult {
@@ -30,25 +31,44 @@ export class StockfishAnalyzer extends EventEmitter {
 	}
 
 	private initEngine() {
-		this.engine = stockfish();
-		
-		this.engine.onmessage = (line: string) => {
-			// console.log('Stockfish:', line);
+		try {
+			// Try to load stockfish using the lite single-threaded version for Node.js compatibility
+			const stockfishDir = path.join(__dirname, '..', 'node_modules', 'stockfish', 'src');
+			const engineFile = 'stockfish-17.1-lite-single-03e3232.js';
+			const enginePath = path.join(stockfishDir, engineFile);
 			
-			if (line === 'uciok') {
-				this.engine.postMessage('isready');
-			} else if (line === 'readyok') {
-				this.isReady = true;
-				this.emit('ready');
-			} else if (line.startsWith('info depth')) {
-				this.parseAnalysis(line);
-			} else if (line.startsWith('bestmove')) {
-				this.parseBestMove(line);
-			}
-		};
+			if (fs.existsSync(enginePath)) {
+				// eslint-disable-next-line @typescript-eslint/no-var-requires
+				const INIT_ENGINE = require(enginePath);
+				this.engine = INIT_ENGINE();
+				
+				this.engine.onmessage = (line: string) => {
+					// console.log('Stockfish:', line);
+					
+					if (line === 'uciok') {
+						this.engine.postMessage('isready');
+					} else if (line === 'readyok') {
+						this.isReady = true;
+						this.emit('ready');
+					} else if (line.startsWith('info depth')) {
+						this.parseAnalysis(line);
+					} else if (line.startsWith('bestmove')) {
+						this.parseBestMove(line);
+					}
+				};
 
-		// Initialize UCI protocol
-		this.engine.postMessage('uci');
+				// Initialize UCI protocol
+				this.engine.postMessage('uci');
+			} else {
+				// eslint-disable-next-line no-console
+				console.error('Stockfish engine not found, analysis will be disabled');
+				this.isReady = false;
+			}
+		} catch (err) {
+			// eslint-disable-next-line no-console
+			console.error('Error initializing Stockfish:', err);
+			this.isReady = false;
+		}
 	}
 
 	private parseAnalysis(line: string) {
@@ -98,8 +118,8 @@ export class StockfishAnalyzer extends EventEmitter {
 	 * Analyze a position given in FEN notation.
 	 */
 	public analyzePosition(fen: string, depth = 15) {
-		if (!this.isReady) {
-			this.once('ready', () => this.analyzePosition(fen, depth));
+		if (!this.isReady || !this.engine) {
+			// If engine is not ready, silently skip analysis
 			return;
 		}
 
@@ -112,7 +132,7 @@ export class StockfishAnalyzer extends EventEmitter {
 	 * Stop the current analysis.
 	 */
 	public stopAnalysis() {
-		if (this.isReady) {
+		if (this.isReady && this.engine) {
 			this.engine.postMessage('stop');
 		}
 	}
@@ -123,7 +143,9 @@ export class StockfishAnalyzer extends EventEmitter {
 	public quit() {
 		if (this.engine) {
 			this.engine.postMessage('quit');
-			this.engine.terminate();
+			if (this.engine.terminate) {
+				this.engine.terminate();
+			}
 		}
 	}
 }
