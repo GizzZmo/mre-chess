@@ -6,6 +6,17 @@ MRE applications are Node.JS apps. Then run as a service in the cloud. When a co
 
 ![MRE Chess in AltspaceVR](./images/mre-chess-altspacevr.png)
 
+## Features
+
+- **Interactive 3D Chess Board**: Play chess in a fully immersive 3D environment
+- **Live Stockfish Analysis**: Real-time position evaluation powered by Stockfish 17.1
+  - Shows position evaluation score (centipawns or mate in N moves)
+  - Highlights the best move suggested by the engine
+  - Analysis depth configurable (default: 15 ply)
+- **Move Validation**: All legal chess moves including castling, en passant, and pawn promotion
+- **Check and Checkmate Detection**: Visual indicators for check and checkmate
+- **Multi-user Support**: Multiple players can view and interact with the same chess board
+
 ## Supported platforms
 
 - [MRETestBed (Unity project)](https://github.com/microsoft/mixed-reality-extension-unity)
@@ -48,6 +59,19 @@ The MRETestBed Unity project is a convenient place to test and develop your MRE 
 #### From AltspaceVR
 
 * Follow the instructions at [Testing an MRE In AltspaceVR](https://github.com/Microsoft/mixed-reality-extension-sdk#testing-an-mre-in-altspacevr)
+
+## Architecture
+
+### Stockfish Analysis Engine
+
+The chess game integrates Stockfish 17.1, one of the strongest open-source chess engines, to provide real-time position analysis:
+
+- **FenConverter**: Converts the internal chess board state to FEN (Forsyth-Edwards Notation), the standard notation for describing chess positions
+- **StockfishAnalyzer**: Manages the Stockfish WASM engine and handles UCI (Universal Chess Interface) communication
+- **Live Analysis**: After each move, the position is automatically analyzed and the evaluation is displayed above the board
+- **Best Move Indicator**: A visual marker shows the destination square of the best move recommended by Stockfish
+
+The analyzer uses the lite single-threaded WASM version of Stockfish for maximum compatibility across different Node.js environments.
 
 ## Contributing
 
