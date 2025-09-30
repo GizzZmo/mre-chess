@@ -13,6 +13,7 @@ import {
 	Guid,
 	parseGuid,
 	Quaternion,
+	TextAnchorLocation,
 	User,
 	Vector3,
 } from '@microsoft/mixed-reality-extension-sdk';
@@ -20,6 +21,9 @@ import {
 /* eslint-disable @typescript-eslint/no-var-requires */
 const chess = require('chess');
 /* eslint-enable @typescript-eslint/no-var-requires */
+
+import { StockfishAnalyzer, AnalysisResult } from './stockfishAnalyzer';
+import { FenConverter } from './fenConverter';
 
 type Game = {
 	move: (src: Coordinate, dst: Coordinate, promo?: string) => MoveResult;
@@ -133,11 +137,16 @@ export default class ChessGame {
 	private resetButton: Actor;
 	private assets: AssetContainer;
 	private preloads: { [id: string]: Asset[] } = {};
+	private analyzer: StockfishAnalyzer;
+	private evaluationText: Actor;
+	private bestMoveMarker: Actor;
 
 	constructor(private context: Context, private baseUrl: string) {
 		this.assets = new AssetContainer(this.context);
 		this.context.onStarted(this.started);
 		this.context.onUserJoined(this.userJoined);
+		this.analyzer = new StockfishAnalyzer();
+		this.setupAnalyzer();
 	}
 
 	/**
@@ -149,6 +158,82 @@ export default class ChessGame {
 
 	private userJoined = (user: User) => {
 		// console.log(user.properties);
+	}
+
+	private setupAnalyzer() {
+		this.analyzer.on('analysis', (result: AnalysisResult) => {
+			this.updateEvaluationDisplay(result);
+			this.showBestMove(result);
+		});
+	}
+
+	private updateEvaluationDisplay(result: AnalysisResult) {
+		if (!this.evaluationText) {
+			return;
+		}
+
+		let displayText = '';
+		if (result.mate !== undefined) {
+			// Mate in N moves
+			if (result.mate > 0) {
+				displayText = `White mates in ${result.mate}`;
+			} else {
+				displayText = `Black mates in ${Math.abs(result.mate)}`;
+			}
+		} else {
+			// Centipawn score
+			const score = result.score / 100;
+			if (score > 0) {
+				displayText = `White +${score.toFixed(2)}`;
+			} else if (score < 0) {
+				displayText = `Black +${Math.abs(score).toFixed(2)}`;
+			} else {
+				displayText = `Equal 0.00`;
+			}
+		}
+
+		displayText += ` (depth ${result.depth})`;
+		this.evaluationText.text.contents = displayText;
+	}
+
+	private analyzeCurrentPosition() {
+		const status = this.game.getStatus();
+		const currentSide = this.game.getCurrentSide();
+		const fen = FenConverter.toFen(status.board, currentSide);
+		this.analyzer.analyzePosition(fen, 15);
+	}
+
+	private showBestMove(result: AnalysisResult) {
+		if (!this.bestMoveMarker || !result.bestMove) {
+			return;
+		}
+
+		// Parse UCI move (e.g., "e2e4" means from e2 to e4)
+		// const fromFile = result.bestMove[0];
+		// const fromRank = parseInt(result.bestMove[1], 10);
+		const toFile = result.bestMove[2];
+		const toRank = parseInt(result.bestMove[3], 10);
+
+		// Get the destination square for the best move
+		const status = this.game.getStatus();
+		const toSquare = status.board.squares.find(
+			s => s.file === toFile && s.rank === toRank
+		);
+
+		if (toSquare) {
+			// Position the marker at the destination square
+			const position = new Vector3();
+			position.copy(this.coordinate(toSquare));
+			position.y = baseHeight + 0.05; // Slightly above the board
+
+			this.bestMoveMarker.transform.local.position = position;
+		}
+	}
+
+	private hideBestMoveMarker() {
+		if (this.bestMoveMarker) {
+			this.bestMoveMarker.transform.local.position.y = 1000;
+		}
 	}
 
 	private async preloadAllModels() {
@@ -206,14 +291,19 @@ export default class ChessGame {
 			this.createChessPieces(),
 			this.createMoveMarkers(),
 			this.createCheckMarker(),
+			this.createBestMoveMarker(),
 			this.createJoinButtons(),
-			this.createResetButton()
+			this.createResetButton(),
+			this.createEvaluationDisplay()
 		]);
 
 		// Hook up event handlers.
 		// Do this after all actors are loaded because the event handlers themselves reference other actors in the
 		// scene. It simplifies handler code if we can assume that the actors are loaded.
 		this.addEventHandlers();
+
+		// Start analyzing the initial position
+		this.analyzeCurrentPosition();
 	}
 
 	private createRootObject() {
@@ -346,6 +436,21 @@ export default class ChessGame {
 		return actor.created();
 	}
 
+	private createBestMoveMarker() {
+		// Use the blue glow marker for best move indicator
+		const prefab = this.preloads['move-marker'].filter(asset => asset.prefab)[0].prefab;
+		const actor = Actor.CreateFromPrefab(this.context, {
+			prefabId: prefab.id,
+			actor: {
+				name: 'best-move-marker',
+				parentId: this.boardOffset.id,
+				transform: { local: { position: { x: 0, y: 1000, z: 0 } } }
+			}
+		});
+		this.bestMoveMarker = actor;
+		return actor.created();
+	}
+
 	private createJoinButtons() {
 
 	}
@@ -366,6 +471,28 @@ export default class ChessGame {
 		});
 		this.resetButton = actor;
 		return actor.created();
+	}
+
+	private createEvaluationDisplay() {
+		// Create a text actor to display the evaluation
+		this.evaluationText = Actor.Create(this.context, {
+			actor: {
+				name: 'evaluation-display',
+				parentId: this.sceneRoot.id,
+				transform: {
+					local: {
+						position: { x: 0, y: 0.15, z: 0 }
+					}
+				},
+				text: {
+					contents: 'Analyzing...',
+					anchor: TextAnchorLocation.MiddleCenter,
+					color: { r: 1, g: 1, b: 1 },
+					height: 0.03
+				}
+			}
+		});
+		return this.evaluationText.created();
 	}
 
 	private addEventHandlers() {
@@ -412,6 +539,7 @@ export default class ChessGame {
 
 	public onDragBegin(userId: Guid, actor: Actor) {
 		this.showMoveMarkers(actor);
+		this.hideBestMoveMarker();
 	}
 
 	private onDragEnd(userId: Guid, actor: Actor) {
@@ -456,6 +584,9 @@ export default class ChessGame {
 		} else if (newStatus.isStalemate) {
 			//
 		}
+
+		// Analyze the new position
+		this.analyzeCurrentPosition();
 	}
 
 	private promoteChessPiece(userId: Guid, actor: Actor, destSquare: Square) {
