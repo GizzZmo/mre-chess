@@ -139,6 +139,7 @@ export default class ChessGame {
 	private preloads: { [id: string]: Asset[] } = {};
 	private analyzer: StockfishAnalyzer;
 	private evaluationText: Actor;
+	private bestMoveMarker: Actor;
 
 	constructor(private context: Context, private baseUrl: string) {
 		this.assets = new AssetContainer(this.context);
@@ -162,6 +163,7 @@ export default class ChessGame {
 	private setupAnalyzer() {
 		this.analyzer.on('analysis', (result: AnalysisResult) => {
 			this.updateEvaluationDisplay(result);
+			this.showBestMove(result);
 		});
 	}
 
@@ -199,6 +201,39 @@ export default class ChessGame {
 		const currentSide = this.game.getCurrentSide();
 		const fen = FenConverter.toFen(status.board, currentSide);
 		this.analyzer.analyzePosition(fen, 15);
+	}
+
+	private showBestMove(result: AnalysisResult) {
+		if (!this.bestMoveMarker || !result.bestMove) {
+			return;
+		}
+
+		// Parse UCI move (e.g., "e2e4" means from e2 to e4)
+		// const fromFile = result.bestMove[0];
+		// const fromRank = parseInt(result.bestMove[1], 10);
+		const toFile = result.bestMove[2];
+		const toRank = parseInt(result.bestMove[3], 10);
+
+		// Get the destination square for the best move
+		const status = this.game.getStatus();
+		const toSquare = status.board.squares.find(
+			s => s.file === toFile && s.rank === toRank
+		);
+
+		if (toSquare) {
+			// Position the marker at the destination square
+			const position = new Vector3();
+			position.copy(this.coordinate(toSquare));
+			position.y = baseHeight + 0.05; // Slightly above the board
+
+			this.bestMoveMarker.transform.local.position = position;
+		}
+	}
+
+	private hideBestMoveMarker() {
+		if (this.bestMoveMarker) {
+			this.bestMoveMarker.transform.local.position.y = 1000;
+		}
 	}
 
 	private async preloadAllModels() {
@@ -256,6 +291,7 @@ export default class ChessGame {
 			this.createChessPieces(),
 			this.createMoveMarkers(),
 			this.createCheckMarker(),
+			this.createBestMoveMarker(),
 			this.createJoinButtons(),
 			this.createResetButton(),
 			this.createEvaluationDisplay()
@@ -400,6 +436,21 @@ export default class ChessGame {
 		return actor.created();
 	}
 
+	private createBestMoveMarker() {
+		// Use the blue glow marker for best move indicator
+		const prefab = this.preloads['move-marker'].filter(asset => asset.prefab)[0].prefab;
+		const actor = Actor.CreateFromPrefab(this.context, {
+			prefabId: prefab.id,
+			actor: {
+				name: 'best-move-marker',
+				parentId: this.boardOffset.id,
+				transform: { local: { position: { x: 0, y: 1000, z: 0 } } }
+			}
+		});
+		this.bestMoveMarker = actor;
+		return actor.created();
+	}
+
 	private createJoinButtons() {
 
 	}
@@ -488,6 +539,7 @@ export default class ChessGame {
 
 	public onDragBegin(userId: Guid, actor: Actor) {
 		this.showMoveMarkers(actor);
+		this.hideBestMoveMarker();
 	}
 
 	private onDragEnd(userId: Guid, actor: Actor) {
