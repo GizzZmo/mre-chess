@@ -14,6 +14,8 @@ MRE applications are Node.JS apps. Then run as a service in the cloud. When a co
   - Highlights the best move suggested by the engine
   - Analysis depth configurable (default: 15 ply)
 - **Move Validation**: All legal chess moves including castling, en passant, and pawn promotion
+- **Automatic Pawn Promotion**: Pawns automatically promote to queens when reaching the opposite end of the board
+- **Reset Button**: Players can reset the board to start a new game by clicking the blue marker located below the board
 - **Check and Checkmate Detection**: Visual indicators for check and checkmate
 - **Multi-user Support**: Multiple players can view and interact with the same chess board
 
